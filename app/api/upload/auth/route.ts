@@ -4,11 +4,12 @@ import { getAuthUrl, getTokensFromCode } from '@/lib/google/drive'
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const code = searchParams.get('code')
+  const redirectUri = `${request.nextUrl.origin}/api/upload/auth`
 
   // If code is present, exchange it for tokens
   if (code) {
     try {
-      const tokens = await getTokensFromCode(code)
+      const tokens = await getTokensFromCode(code, redirectUri)
       
       // Return HTML that sends token to parent window
       const html = `
@@ -42,6 +43,6 @@ export async function GET(request: NextRequest) {
   }
 
   // Otherwise, return the auth URL
-  const authUrl = getAuthUrl()
+  const authUrl = getAuthUrl(redirectUri)
   return NextResponse.json({ authUrl })
 }

@@ -5,19 +5,19 @@ import { DriveFile } from '@/types'
 /**
  * Create OAuth2 client
  */
-export function createOAuth2Client() {
+export function createOAuth2Client(redirectUri?: string) {
   return new google.auth.OAuth2(
     process.env.GOOGLE_DRIVE_CLIENT_ID,
     process.env.GOOGLE_DRIVE_CLIENT_SECRET,
-    process.env.GOOGLE_DRIVE_REDIRECT_URI
+    redirectUri || process.env.GOOGLE_DRIVE_REDIRECT_URI
   )
 }
 
 /**
  * Get authorization URL
  */
-export function getAuthUrl(): string {
-  const oauth2Client = createOAuth2Client()
+export function getAuthUrl(redirectUri?: string): string {
+  const oauth2Client = createOAuth2Client(redirectUri)
   
   const scopes = [
     'https://www.googleapis.com/auth/drive.file',
@@ -34,8 +34,8 @@ export function getAuthUrl(): string {
 /**
  * Get tokens from authorization code
  */
-export async function getTokensFromCode(code: string) {
-  const oauth2Client = createOAuth2Client()
+export async function getTokensFromCode(code: string, redirectUri?: string) {
+  const oauth2Client = createOAuth2Client(redirectUri)
   const { tokens } = await oauth2Client.getToken(code)
   return tokens
 }
