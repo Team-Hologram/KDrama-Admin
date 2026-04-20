@@ -1,23 +1,15 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { signIn } from 'next-auth/react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Film } from 'lucide-react'
 
 export default function LoginPage() {
-  const [error, setError] = useState<string | null>(null)
-  const [callbackUrl, setCallbackUrl] = useState<string>('/admin/dashboard')
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    setError(params.get('error'))
-    const urlCallback = params.get('callbackUrl')
-    if (urlCallback) {
-      setCallbackUrl(urlCallback)
-    }
-  }, [])
+  const searchParams = useSearchParams()
+  const callbackUrl = searchParams?.get('callbackUrl') ?? '/admin/dashboard'
+  const error = searchParams?.get('error')
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">

@@ -10,15 +10,17 @@ import {
   Upload,
   LayoutDashboard,
   LogOut,
+  Bell,
 } from 'lucide-react'
 import { signOut } from 'next-auth/react'
 import { Button } from '@/components/ui/button'
 
 const navigation = [
-  { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
-  { name: 'Movies', href: '/admin/movies', icon: Film },
-  { name: 'Dramas', href: '/admin/dramas', icon: Tv },
-  { name: 'Uploads', href: '/admin/uploads', icon: Upload },
+  { name: 'Dashboard',     href: '/admin/dashboard',     icon: LayoutDashboard },
+  { name: 'Movies',        href: '/admin/movies',         icon: Film },
+  { name: 'Dramas',        href: '/admin/dramas',         icon: Tv },
+  { name: 'Uploads',       href: '/admin/uploads',        icon: Upload },
+  { name: 'Notifications', href: '/admin/notifications',  icon: Bell },
 ]
 
 export function Sidebar() {

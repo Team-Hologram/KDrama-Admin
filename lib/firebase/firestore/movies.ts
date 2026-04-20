@@ -1,4 +1,5 @@
 import { db } from '../admin'
+import { bumpCatalogVersion } from './settings'
 import { Movie } from '@/types'
 
 const COLLECTION = 'media'
@@ -78,7 +79,7 @@ export async function createMovie(
     })
 
     const newDoc = await docRef.get()
-    
+    await bumpCatalogVersion()
     return {
       id: newDoc.id,
       ...newDoc.data(),
@@ -116,7 +117,7 @@ export async function updateMovie(id: string, data: Partial<Movie>): Promise<Mov
 
     await docRef.update(updateData)
     const updatedDoc = await docRef.get()
-
+    await bumpCatalogVersion()
     return {
       id: updatedDoc.id,
       ...updatedDoc.data(),
@@ -145,6 +146,7 @@ export async function deleteMovie(id: string): Promise<void> {
     }
 
     await docRef.delete()
+    await bumpCatalogVersion()
   } catch (error) {
     console.error('Error deleting movie:', error)
     throw new Error('Failed to delete movie')

@@ -1,4 +1,5 @@
 import { db } from '../admin'
+import { bumpCatalogVersion } from './settings'
 import { Drama } from '@/types'
 
 const COLLECTION = 'media'
@@ -80,7 +81,7 @@ export async function createDrama(
     })
     
     const newDoc = await docRef.get()
-    
+    await bumpCatalogVersion()
     return {
       id: newDoc.id,
       ...newDoc.data(),
@@ -118,7 +119,7 @@ export async function updateDrama(id: string, data: Partial<Drama>): Promise<Dra
 
     await docRef.update(updateData)
     const updatedDoc = await docRef.get()
-    
+    await bumpCatalogVersion()
     return {
       id: updatedDoc.id,
       ...updatedDoc.data(),
@@ -157,8 +158,8 @@ export async function deleteDrama(id: string): Promise<void> {
     
     // Delete the drama document
     batch.delete(docRef)
-    
     await batch.commit()
+    await bumpCatalogVersion()
   } catch (error) {
     console.error('Error deleting drama:', error)
     throw new Error('Failed to delete drama')
