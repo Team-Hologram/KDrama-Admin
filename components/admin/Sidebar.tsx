@@ -19,8 +19,8 @@ const navigation = [
   { name: 'Dashboard',     href: '/admin/dashboard',     icon: LayoutDashboard },
   { name: 'Movies',        href: '/admin/movies',         icon: Film },
   { name: 'Dramas',        href: '/admin/dramas',         icon: Tv },
-  { name: 'Uploads',       href: '/admin/uploads',        icon: Upload },
   { name: 'Notifications', href: '/admin/notifications',  icon: Bell },
+  { name: 'Uploads',       href: '/admin/uploads',        icon: Upload },
 ]
 
 export function Sidebar() {

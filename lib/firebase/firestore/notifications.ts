@@ -10,7 +10,13 @@ export interface NotificationPayload {
   data?: Record<string, string>
 }
 
-export interface StoredNotification extends NotificationPayload {
+export interface NotificationDeliveryStats {
+  totalDevices: number
+  pushed: number
+  failed: number
+}
+
+export interface StoredNotification extends NotificationPayload, NotificationDeliveryStats {
   id: string
   createdAt: string
 }
@@ -20,7 +26,8 @@ export interface StoredNotification extends NotificationPayload {
  * The mobile app detects the version bump and fetches fresh notifications.
  */
 export async function createNotification(
-  payload: NotificationPayload
+  payload: NotificationPayload,
+  stats?: NotificationDeliveryStats
 ): Promise<StoredNotification> {
   const now = new Date().toISOString()
 
@@ -29,13 +36,23 @@ export async function createNotification(
     body: payload.body,
     imageUrl: payload.imageUrl ?? null,
     data: payload.data ?? {},
+    totalDevices: stats?.totalDevices ?? 0,
+    pushed: stats?.pushed ?? 0,
+    failed: stats?.failed ?? 0,
     createdAt: now,
   })
 
   // Bump version so the mobile app knows to refresh
   await bumpNotificationsVersion()
 
-  return { id: docRef.id, ...payload, createdAt: now }
+  return {
+    id: docRef.id,
+    ...payload,
+    createdAt: now,
+    totalDevices: stats?.totalDevices ?? 0,
+    pushed: stats?.pushed ?? 0,
+    failed: stats?.failed ?? 0,
+  }
 }
 
 /**
@@ -54,6 +71,9 @@ export async function getAllNotifications(): Promise<StoredNotification[]> {
     body: doc.data().body ?? '',
     imageUrl: doc.data().imageUrl ?? undefined,
     data: doc.data().data ?? {},
+    totalDevices: doc.data().totalDevices ?? 0,
+    pushed: doc.data().pushed ?? 0,
+    failed: doc.data().failed ?? 0,
     createdAt: doc.data().createdAt ?? '',
   }))
 }

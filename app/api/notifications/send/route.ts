@@ -7,7 +7,8 @@ import { createNotification, NotificationPayload } from '@/lib/firebase/firestor
 /**
  * POST /api/notifications/send
  *
- * Saves a notification to Firestore AND sends an FCM push to all registered devices.
+ * Collects FCM tokens → sends multicast → saves notification to Firestore with
+ * real delivery stats (totalDevices, pushed, failed).
  * Automatically bumps notificationsUpdatedAt so the mobile app updates its cache.
  *
  * Body: { title, body, imageUrl?, data? }
@@ -32,32 +33,35 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // 1. Save to Firestore + bump notificationsUpdatedAt
-    const stored = await createNotification({ title, body: notifBody, imageUrl, data })
-
-    if (!sendPush) {
-      return NextResponse.json({ success: true, id: stored.id, pushed: 0 })
-    }
-
-    // 2. Collect all FCM tokens from Firestore
+    // 1. Collect all FCM tokens from Firestore
     const tokensSnapshot = await db.collection('fcmTokens').get()
     const tokens = tokensSnapshot.docs.map((d) => d.data().token as string).filter(Boolean)
+    const totalDevices = tokens.length
 
-    if (tokens.length === 0) {
-      return NextResponse.json({ success: true, id: stored.id, pushed: 0, message: 'No tokens registered' })
+    if (!sendPush || tokens.length === 0) {
+      const stored = await createNotification(
+        { title, body: notifBody, imageUrl, data },
+        { totalDevices, pushed: 0, failed: 0 }
+      )
+      return NextResponse.json({
+        success: true,
+        id: stored.id,
+        totalDevices,
+        pushed: 0,
+        failed: 0,
+        message: tokens.length === 0 ? 'No tokens registered' : undefined,
+      })
     }
 
-    // 3. Build FCM message
-    const message: admin.messaging.MulticastMessage = {
-      tokens,
+    // 2. Build FCM message template (notificationId patched after save)
+    const messageTpl: Omit<admin.messaging.MulticastMessage, 'tokens'> = {
       notification: {
         title,
         body: notifBody,
         ...(imageUrl ? { imageUrl } : {}),
       },
       data: {
-        notificationId: stored.id,
-        alreadySaved: 'true',  // tells the mobile app not to re-save to Firestore
+        alreadySaved: 'true', // tells the mobile app not to re-save to Firestore
         ...(data ?? {}),
       },
       android: {
@@ -78,7 +82,7 @@ export async function POST(req: NextRequest) {
       },
     }
 
-    // 4. Send to all tokens in batches of 500 (FCM limit)
+    // 3. Send to all tokens in batches of 500 (FCM limit)
     const BATCH_SIZE = 500
     let successCount = 0
     let failureCount = 0
@@ -86,7 +90,7 @@ export async function POST(req: NextRequest) {
 
     for (let i = 0; i < tokens.length; i += BATCH_SIZE) {
       const batch = tokens.slice(i, i + BATCH_SIZE)
-      const batchMessage = { ...message, tokens: batch }
+      const batchMessage = { ...messageTpl, tokens: batch }
       const response = await admin.messaging().sendEachForMulticast(batchMessage)
 
       successCount += response.successCount
@@ -106,6 +110,12 @@ export async function POST(req: NextRequest) {
       })
     }
 
+    // 4. Save to Firestore now that we have real stats
+    const stored = await createNotification(
+      { title, body: notifBody, imageUrl, data },
+      { totalDevices, pushed: successCount, failed: failureCount }
+    )
+
     // 5. Clean up invalid tokens (fire-and-forget)
     if (invalidTokens.length > 0) {
       const cleanupBatch = db.batch()
@@ -118,11 +128,12 @@ export async function POST(req: NextRequest) {
       console.log(`[FCM] Cleaned up ${invalidTokens.length} invalid tokens`)
     }
 
-    console.log(`[FCM] Sent: success=${successCount} failure=${failureCount}`)
+    console.log(`[FCM] Sent: success=${successCount} failure=${failureCount} total=${totalDevices}`)
 
     return NextResponse.json({
       success: true,
       id: stored.id,
+      totalDevices,
       pushed: successCount,
       failed: failureCount,
       invalidTokensCleaned: invalidTokens.length,
