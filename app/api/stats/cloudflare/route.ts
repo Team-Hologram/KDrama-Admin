@@ -47,66 +47,35 @@ function count5xx(sm: any[]): number {
   return sm.filter((s:any)=>s.edgeResponseStatus>=500).reduce((a:number,s:any)=>a+(s.requests??0),0)
 }
 
-function periodRange(period: CFPeriod) {
-  const now = new Date()
-  const since = new Date(now)
-  if (period === '24h') {
-    since.setHours(since.getHours() - 24)
-    // Hourly dataset needs full ISO datetime strings
-    return { since: since.toISOString(), until: now.toISOString(), useHourly: true }
-  }
-  if (period === '7d') { since.setDate(since.getDate() - 7) }
-  else                 { since.setDate(since.getDate() - 30) }
-  // Daily dataset uses date-only strings (YYYY-MM-DD)
-  return { since: since.toISOString().split('T')[0], until: now.toISOString().split('T')[0], useHourly: false }
-}
+// ── Queries ───────────────────────────────────────────────────────────────────
 
-async function cfFetch(token: string, query: string, variables: Record<string,string>) {
-  const res = await fetch(CF_GRAPHQL, {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, variables }),
-  })
-  if (!res.ok) {
-    const body = await res.text()
-    console.error('[CF] HTTP', res.status, body)
-    return null
-  }
-  const json = await res.json()
-  if (json.errors?.length) {
-    console.error('[CF] GraphQL errors:', JSON.stringify(json.errors))
-    console.error('[CF] Variables were:', JSON.stringify(variables))
-    return null
-  }
-  return json
-}
-
-// ── Main analytics query (NO country dimension — keeps free plan compatible) ──
+// Daily query — all fields available on free plan
 const DAILY_QUERY = `
   query($zoneId: String!, $since: String!, $until: String!) {
     viewer { zones(filter: { zoneTag: $zoneId }) {
       httpRequests1dGroups(limit: 35 filter: { date_geq: $since, date_leq: $until } orderBy: [date_ASC]) {
         dimensions { date }
-        sum { requests bytes cachedRequests cachedBytes threats pageViews responseStatusMap { edgeResponseStatus requests } }
+        sum { requests bytes cachedRequests threats pageViews responseStatusMap { edgeResponseStatus requests } }
         uniq { uniques }
       }
     }}
   }
 `
 
+// Hourly query — stripped to only fields reliably available on free plan
+// (responseStatusMap and uniq.uniques are NOT available in hourly dataset on free plan)
 const HOURLY_QUERY = `
   query($zoneId: String!, $since: String!, $until: String!) {
     viewer { zones(filter: { zoneTag: $zoneId }) {
       httpRequests1hGroups(limit: 25 filter: { datetimeHour_geq: $since, datetimeHour_leq: $until } orderBy: [datetimeHour_ASC]) {
         dimensions { datetimeHour }
-        sum { requests bytes cachedRequests cachedBytes threats pageViews responseStatusMap { edgeResponseStatus requests } }
-        uniq { uniques }
+        sum { requests bytes cachedRequests threats pageViews }
       }
     }}
   }
 `
 
-// ── Separate country query (optional — if this fails, we still show main data) ──
+// Country query — separate optional request
 const COUNTRY_QUERY = `
   query($zoneId: String!, $since: String!, $until: String!) {
     viewer { zones(filter: { zoneTag: $zoneId }) {
@@ -118,9 +87,53 @@ const COUNTRY_QUERY = `
   }
 `
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+async function cfFetch(token: string, query: string, variables: Record<string,string>) {
+  const res = await fetch(CF_GRAPHQL, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, variables }),
+  })
+  if (!res.ok) {
+    console.error('[CF] HTTP', res.status, await res.text())
+    return null
+  }
+  const json = await res.json()
+  if (json.errors?.length) {
+    console.error('[CF] GraphQL errors:', JSON.stringify(json.errors))
+    console.error('[CF] Variables:', JSON.stringify(variables))
+    return null
+  }
+  return json
+}
+
+function dailyRange(days: number) {
+  const now = new Date()
+  const since = new Date(now)
+  since.setDate(since.getDate() - days)
+  return {
+    since: since.toISOString().split('T')[0],
+    until: now.toISOString().split('T')[0],
+  }
+}
+
+function hourlyRange() {
+  const now = new Date()
+  const since = new Date(now)
+  since.setHours(since.getHours() - 24)
+  // Cloudflare expects ISO datetime strings for hourly filter
+  return {
+    since: since.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    until: now.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+  }
+}
+
+// ── Route ─────────────────────────────────────────────────────────────────────
+
 export async function GET(request: NextRequest) {
   const period = (request.nextUrl.searchParams.get('period') ?? '7d') as CFPeriod
-  const cacheKey = `cf-analytics-${period}`
+  const cacheKey = `cf-v2-${period}`
 
   const cached = cacheGet<CFStats>(cacheKey)
   if (cached) return NextResponse.json(cached)
@@ -129,22 +142,48 @@ export async function GET(request: NextRequest) {
   const zoneId = process.env.CLOUDFLARE_ZONE_ID
 
   if (!token || !zoneId || token.startsWith('your_')) {
-    console.warn('[CF] Missing credentials')
     return NextResponse.json(empty(period))
   }
 
   try {
-    const { since, until, useHourly } = periodRange(period)
-    const vars = { zoneId, since, until }
+    let rawGroups: any[] = []
+    let useHourly = false
 
-    // ── Main analytics (critical — must succeed) ───────────────────────────
-    const mainJson = await cfFetch(token, useHourly ? HOURLY_QUERY : DAILY_QUERY, vars)
-    if (!mainJson) return NextResponse.json(empty(period))
+    if (period === '24h') {
+      // ── Try hourly first ─────────────────────────────────────────────────
+      const { since, until } = hourlyRange()
+      const hJson = await cfFetch(token, HOURLY_QUERY, { zoneId, since, until })
 
-    const zone = mainJson.data?.viewer?.zones?.[0]
-    const rawGroups: any[] = useHourly
-      ? (zone?.httpRequests1hGroups ?? [])
-      : (zone?.httpRequests1dGroups ?? [])
+      if (hJson) {
+        const hGroups: any[] = hJson.data?.viewer?.zones?.[0]?.httpRequests1hGroups ?? []
+        if (hGroups.length > 0) {
+          rawGroups = hGroups
+          useHourly = true
+          console.log(`[CF] 24h: hourly OK — ${hGroups.length} points`)
+        } else {
+          console.warn('[CF] 24h: hourly returned 0 points, falling back to daily')
+        }
+      } else {
+        console.warn('[CF] 24h: hourly query failed, falling back to daily')
+      }
+
+      // ── Fallback: use daily data for last 2 days ─────────────────────────
+      if (!useHourly) {
+        const { since: ds, until: du } = dailyRange(2)
+        const dJson = await cfFetch(token, DAILY_QUERY, { zoneId, since: ds, until: du })
+        if (dJson) {
+          rawGroups = dJson.data?.viewer?.zones?.[0]?.httpRequests1dGroups ?? []
+          console.log(`[CF] 24h fallback: daily returned ${rawGroups.length} points`)
+        }
+      }
+    } else {
+      // ── 7d / 30d — always daily ──────────────────────────────────────────
+      const days = period === '7d' ? 7 : 30
+      const { since, until } = dailyRange(days)
+      const dJson = await cfFetch(token, DAILY_QUERY, { zoneId, since, until })
+      if (!dJson) return NextResponse.json(empty(period))
+      rawGroups = dJson.data?.viewer?.zones?.[0]?.httpRequests1dGroups ?? []
+    }
 
     if (!rawGroups.length) {
       const s = { ...empty(period), available: true }
@@ -152,10 +191,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(s)
     }
 
+    // ── Parse series ───────────────────────────────────────────────────────
     const series: CFPeriodPoint[] = rawGroups.map((g: any) => {
       const sm = g.sum?.responseStatusMap ?? []
+      const date = useHourly
+        ? (g.dimensions?.datetimeHour ?? g.dimensions?.date ?? '')
+        : (g.dimensions?.date ?? '')
       return {
-        date:           useHourly ? g.dimensions.datetimeHour : g.dimensions.date,
+        date,
         requests:       g.sum?.requests       ?? 0,
         bytes:          g.sum?.bytes          ?? 0,
         cachedRequests: g.sum?.cachedRequests ?? 0,
@@ -167,6 +210,7 @@ export async function GET(request: NextRequest) {
       }
     })
 
+    // ── Aggregate totals ───────────────────────────────────────────────────
     const t = series.reduce((a,d)=>({
       requests:       a.requests       + d.requests,
       bytes:          a.bytes          + d.bytes,
@@ -180,11 +224,13 @@ export async function GET(request: NextRequest) {
 
     const cacheHitRate = t.requests > 0 ? Math.round((t.cachedRequests/t.requests)*100) : 0
 
-    // ── Country query (optional — failure does NOT block main data) ─────────
+    // ── Country query (optional, daily only) ──────────────────────────────
     let countries: CFCountry[] = []
-    if (!useHourly) {
+    if (!useHourly && period !== '24h') {
       try {
-        const cJson = await cfFetch(token, COUNTRY_QUERY, vars)
+        const days = period === '7d' ? 7 : 30
+        const { since, until } = dailyRange(days)
+        const cJson = await cfFetch(token, COUNTRY_QUERY, { zoneId, since, until })
         if (cJson) {
           const cGroups: any[] = cJson.data?.viewer?.zones?.[0]?.httpRequests1dGroups ?? []
           const map: Record<string,number> = {}
@@ -210,7 +256,7 @@ export async function GET(request: NextRequest) {
     cacheSet(cacheKey, stats)
     return NextResponse.json(stats)
   } catch (error) {
-    console.error('[CF] Error:', error)
+    console.error('[CF] Unexpected error:', error)
     return NextResponse.json(empty(period))
   }
 }

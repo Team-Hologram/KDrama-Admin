@@ -123,18 +123,46 @@ export default function DashboardPage() {
   const [cf, setCf] = useState<CFStats|null>(null)
   const [cfLoad, setCfLoad] = useState(true)
 
+  // ── Fetch movies + dramas once (rarely change) ────────────────────────────
   useEffect(()=>{
     setMLoading(true)
     Promise.all([
       fetch('/api/movies').then(r=>r.json()),
       fetch('/api/dramas').then(r=>r.json()),
-      fetch('/api/stats/users').then(r=>r.json()),
-    ]).then(([mv,dr,us])=>{
+    ]).then(([mv,dr])=>{
       const views=[...mv,...dr].reduce((s:number,x:any)=>s+(x.views||0),0)
       const trending=[...mv,...dr].filter((x:any)=>x.trending).length
-      setMedia({movies:mv.length,dramas:dr.length,views,trending,users:us.count??0})
+      setMedia(prev=>({...prev,movies:mv.length,dramas:dr.length,views,trending}))
     }).catch(console.error).finally(()=>setMLoading(false))
   },[])
+
+  // ── Fetch user count — live, no cache, polls every 30s ───────────────────
+  const fetchUserCount = useCallback(()=>{
+    fetch('/api/stats/users')
+      .then(r=>r.json())
+      .then((d:any)=>setMedia(prev=>({...prev,users:d.count??0})))
+      .catch(console.error)
+  },[])
+
+  useEffect(()=>{
+    // Immediate fetch
+    fetchUserCount()
+
+    // Poll every 30 seconds
+    const interval = setInterval(fetchUserCount, 30_000)
+
+    // Also refetch when the browser tab becomes active again
+    const onFocus = () => fetchUserCount()
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', ()=>{
+      if (document.visibilityState === 'visible') fetchUserCount()
+    })
+
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('focus', onFocus)
+    }
+  },[fetchUserCount])
 
   const fetchCF = useCallback((p:Period)=>{
     setCfLoad(true)
