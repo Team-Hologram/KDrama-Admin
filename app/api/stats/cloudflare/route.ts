@@ -50,9 +50,14 @@ function count5xx(sm: any[]): number {
 function periodRange(period: CFPeriod) {
   const now = new Date()
   const since = new Date(now)
-  if (period==='24h') { since.setHours(since.getHours()-24); return { since: since.toISOString().split('T')[0], until: now.toISOString().split('T')[0], useHourly: true } }
-  if (period==='7d')  { since.setDate(since.getDate()-7)  }
-  else                { since.setDate(since.getDate()-30) }
+  if (period === '24h') {
+    since.setHours(since.getHours() - 24)
+    // Hourly dataset needs full ISO datetime strings
+    return { since: since.toISOString(), until: now.toISOString(), useHourly: true }
+  }
+  if (period === '7d') { since.setDate(since.getDate() - 7) }
+  else                 { since.setDate(since.getDate() - 30) }
+  // Daily dataset uses date-only strings (YYYY-MM-DD)
   return { since: since.toISOString().split('T')[0], until: now.toISOString().split('T')[0], useHourly: false }
 }
 
@@ -82,9 +87,9 @@ const DAILY_QUERY = `
 `
 
 const HOURLY_QUERY = `
-  query($zoneId: String!, $since: String!, $until: String!) {
+  query($zoneId: String!, $since: Time!, $until: Time!) {
     viewer { zones(filter: { zoneTag: $zoneId }) {
-      httpRequests1hGroups(limit: 25 filter: { date_geq: $since, date_leq: $until } orderBy: [datetimeHour_ASC]) {
+      httpRequests1hGroups(limit: 25 filter: { datetimeHour_geq: $since, datetimeHour_leq: $until } orderBy: [datetimeHour_ASC]) {
         dimensions { datetimeHour }
         sum { requests bytes cachedRequests cachedBytes threats pageViews responseStatusMap { edgeResponseStatus requests } }
         uniq { uniques }

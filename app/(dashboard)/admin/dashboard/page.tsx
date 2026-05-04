@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
-import { Film, Tv, TrendingUp, Eye, Users, Globe, Zap, ShieldAlert, RefreshCw, WifiOff, ArrowUpRight, AlertTriangle, ServerCrash, MapPin } from 'lucide-react'
+import { Film, Tv, TrendingUp, Eye, Users, Globe, Zap, ShieldAlert, RefreshCw, WifiOff, ArrowUpRight, AlertTriangle, MapPin } from 'lucide-react'
 
 type Period = '24h' | '7d' | '30d'
 
@@ -155,8 +155,7 @@ export default function DashboardPage() {
     Cached: d.cachedRequests,
     'BW (MB)': parseFloat((d.bytes/1024/1024).toFixed(2)),
     Threats: d.threats,
-    '4xx': d.errors4xx,
-    '5xx': d.errors5xx,
+    Errors: d.errors4xx + d.errors5xx,
     Visitors: d.uniques,
   }))
 
@@ -198,15 +197,14 @@ export default function DashboardPage() {
       </div>
 
       {/* Cloudflare summary cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-4">
-        <StatCard title="Requests"        value={cf?fmtN(cf.totals.requests):null}        icon={<Globe className="h-5 w-5"/>}        accent="bg-indigo-50"  ic="text-indigo-500"  loading={cfLoad} na={cfNa} sub={periodLabel}/>
-        <StatCard title="Bandwidth"       value={cf?fmtBytes(cf.totals.bytes):null}        icon={<ArrowUpRight className="h-5 w-5"/>}  accent="bg-sky-50"     ic="text-sky-500"     loading={cfLoad} na={cfNa} sub={periodLabel}/>
-        <StatCard title="Cached"          value={cf?fmtN(cf.totals.cachedRequests):null}   icon={<Zap className="h-5 w-5"/>}          accent="bg-emerald-50" ic="text-emerald-500" loading={cfLoad} na={cfNa} sub="From edge"/>
-        <StatCard title="Cache Hit"       value={cf?`${cf.totals.cacheHitRate}%`:null}     icon={<Zap className="h-5 w-5"/>}          accent="bg-teal-50"    ic="text-teal-500"    loading={cfLoad} na={cfNa}/>
-        <StatCard title="Unique Visitors" value={cf?fmtN(cf.totals.uniqueVisitors):null}   icon={<Users className="h-5 w-5"/>}        accent="bg-purple-50"  ic="text-purple-500"  loading={cfLoad} na={cfNa} sub={periodLabel}/>
-        <StatCard title="Threats"         value={cf?fmtN(cf.totals.threats):null}          icon={<ShieldAlert className="h-5 w-5"/>}  accent="bg-yellow-50"  ic="text-yellow-500"  loading={cfLoad} na={cfNa} sub="Blocked"/>
-        <StatCard title="4xx Errors"      value={cf?fmtN(cf.totals.errors4xx):null}        icon={<AlertTriangle className="h-5 w-5"/>} accent="bg-orange-50" ic="text-orange-500"  loading={cfLoad} na={cfNa}/>
-        <StatCard title="5xx Errors"      value={cf?fmtN(cf.totals.errors5xx):null}        icon={<ServerCrash className="h-5 w-5"/>}   accent="bg-rose-50"   ic="text-rose-500"    loading={cfLoad} na={cfNa}/>
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4">
+        <StatCard title="Requests"        value={cf?fmtN(cf.totals.requests):null}                             icon={<Globe className="h-5 w-5"/>}       accent="bg-indigo-50"  ic="text-indigo-500"  loading={cfLoad} na={cfNa} sub={periodLabel}/>
+        <StatCard title="Bandwidth"       value={cf?fmtBytes(cf.totals.bytes):null}                            icon={<ArrowUpRight className="h-5 w-5"/>} accent="bg-sky-50"     ic="text-sky-500"     loading={cfLoad} na={cfNa} sub={periodLabel}/>
+        <StatCard title="Cached"          value={cf?fmtN(cf.totals.cachedRequests):null}                       icon={<Zap className="h-5 w-5"/>}          accent="bg-emerald-50" ic="text-emerald-500" loading={cfLoad} na={cfNa} sub="From edge"/>
+        <StatCard title="Cache Hit"       value={cf?`${cf.totals.cacheHitRate}%`:null}                         icon={<Zap className="h-5 w-5"/>}          accent="bg-teal-50"    ic="text-teal-500"    loading={cfLoad} na={cfNa}/>
+        <StatCard title="Unique Visitors" value={cf?fmtN(cf.totals.uniqueVisitors):null}                       icon={<Users className="h-5 w-5"/>}        accent="bg-purple-50"  ic="text-purple-500"  loading={cfLoad} na={cfNa} sub={periodLabel}/>
+        <StatCard title="Threats"         value={cf?fmtN(cf.totals.threats):null}                              icon={<ShieldAlert className="h-5 w-5"/>}  accent="bg-yellow-50"  ic="text-yellow-500"  loading={cfLoad} na={cfNa} sub="Blocked"/>
+        <StatCard title="Errors"          value={cf?fmtN(cf.totals.errors4xx+cf.totals.errors5xx):null}        icon={<AlertTriangle className="h-5 w-5"/>} accent="bg-rose-50"   ic="text-rose-500"    loading={cfLoad} na={cfNa} sub="4xx + 5xx"/>
       </div>
 
       {/* Charts row 1 – Requests + Bandwidth */}
@@ -263,16 +261,14 @@ export default function DashboardPage() {
 
       {/* Charts row 3 – Errors + Visitors */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        <ChartWrap title="HTTP Errors" sub={`4xx client errors & 5xx server errors — ${periodLabel.toLowerCase()}`} loading={cfLoad} na={cfNa}>
+        <ChartWrap title="HTTP Errors" sub={`Total 4xx + 5xx errors — ${periodLabel.toLowerCase()}`} loading={cfLoad} na={cfNa}>
           <ResponsiveContainer width="100%" height={210}>
             <BarChart data={chartData} margin={{top:0,right:8,left:-20,bottom:0}}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false}/>
               <XAxis dataKey="date" tick={{fontSize:11,fill:'#9ca3af'}} axisLine={false} tickLine={false}/>
               <YAxis tick={{fontSize:11,fill:'#9ca3af'}} axisLine={false} tickLine={false}/>
               <Tooltip content={<Tip/>}/>
-              <Legend wrapperStyle={{fontSize:12,paddingTop:8}}/>
-              <Bar dataKey="4xx" fill="#f97316" radius={[4,4,0,0]} maxBarSize={32}/>
-              <Bar dataKey="5xx" fill="#f43f5e" radius={[4,4,0,0]} maxBarSize={32}/>
+              <Bar dataKey="Errors" fill="#f43f5e" radius={[4,4,0,0]} maxBarSize={40}/>
             </BarChart>
           </ResponsiveContainer>
         </ChartWrap>
