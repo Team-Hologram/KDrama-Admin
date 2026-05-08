@@ -203,6 +203,7 @@ function MobilePreview({ title, body, imageUrl }: { title: string; body: string;
                   </div>
                   {imageUrl && (
                     <img
+                      key={imageUrl}
                       src={imageUrl} alt="preview"
                       className="h-10 w-10 rounded-lg object-cover border border-white/10 shrink-0"
                       onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
@@ -235,7 +236,7 @@ export default function NotificationsPage() {
       setLoadingHistory(true)
       const res = await fetch('/api/notifications/send')
       const json = await res.json()
-      setNotifications(json.notifications ?? [])
+      setNotifications(Array.isArray(json) ? json : (json.notifications ?? []))
     } catch { console.error('Failed to load notifications') }
     finally { setLoadingHistory(false) }
   }
