@@ -20,6 +20,7 @@ interface SentNotification {
   totalDevices: number
   pushed: number
   failed: number
+  unsupported: number
 }
 
 interface SendResult {
@@ -28,6 +29,7 @@ interface SendResult {
   totalDevices?: number
   pushed?: number
   failed?: number
+  unsupported?: number
   error?: string
   message?: string
 }
@@ -35,12 +37,13 @@ interface SendResult {
 // ── Stat pill ─────────────────────────────────────────────────────────────────
 function StatPill({ icon, label, value, color }: {
   icon: React.ReactNode; label: string; value: number
-  color: 'blue' | 'green' | 'red'
+  color: 'blue' | 'green' | 'red' | 'amber'
 }) {
   const colors = {
     blue:  'bg-sky-50 border-sky-100 text-sky-700',
     green: 'bg-emerald-50 border-emerald-100 text-emerald-700',
     red:   'bg-rose-50 border-rose-100 text-rose-700',
+    amber: 'bg-amber-50 border-amber-100 text-amber-700',
   }
   return (
     <div className={`flex items-center gap-2 rounded-xl border px-3 py-2 ${colors[color]}`}>
@@ -54,10 +57,11 @@ function StatPill({ icon, label, value, color }: {
 }
 
 // ── Delivery stats ────────────────────────────────────────────────────────────
-function DeliveryStats({ totalDevices, pushed, failed, compact = false }: {
-  totalDevices: number; pushed: number; failed: number; compact?: boolean
+function DeliveryStats({ totalDevices, pushed, failed, unsupported = 0, compact = false }: {
+  totalDevices: number; pushed: number; failed: number; unsupported?: number; compact?: boolean
 }) {
-  const successRate = totalDevices > 0 ? Math.round((pushed / totalDevices) * 100) : 0
+  const supportedDevices = Math.max(totalDevices - unsupported, 0)
+  const successRate = supportedDevices > 0 ? Math.round((pushed / supportedDevices) * 100) : 0
 
   if (compact) {
     return (
@@ -73,6 +77,11 @@ function DeliveryStats({ totalDevices, pushed, failed, compact = false }: {
             <XCircle className="h-3 w-3" />{failed} failed
           </span>
         )}
+        {unsupported > 0 && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-100 px-2 py-0.5 text-xs text-amber-600">
+            <AlertTriangle className="h-3 w-3" />{unsupported} unsupported
+          </span>
+        )}
         <span className="text-xs text-gray-400">{successRate}% delivery</span>
       </div>
     )
@@ -84,8 +93,9 @@ function DeliveryStats({ totalDevices, pushed, failed, compact = false }: {
         <StatPill icon={<Smartphone className="h-4 w-4" />} label="Total Devices" value={totalDevices} color="blue" />
         <StatPill icon={<CheckCircle2 className="h-4 w-4" />} label="Delivered" value={pushed} color="green" />
         <StatPill icon={<XCircle className="h-4 w-4" />} label="Failed" value={failed} color="red" />
+        <StatPill icon={<AlertTriangle className="h-4 w-4" />} label="Unsupported" value={unsupported} color="amber" />
       </div>
-      {totalDevices > 0 && (
+      {supportedDevices > 0 && (
         <div className="space-y-1">
           <div className="flex justify-between text-xs text-gray-500">
             <span>Delivery rate</span>
@@ -126,7 +136,13 @@ function HistoryItem({ n, deletingId, onDelete }: {
             </span>
           </div>
           <p className="text-gray-500 text-sm mt-0.5 line-clamp-2 leading-relaxed">{n.body}</p>
-          <DeliveryStats totalDevices={n.totalDevices ?? 0} pushed={n.pushed ?? 0} failed={n.failed ?? 0} compact />
+          <DeliveryStats
+            totalDevices={n.totalDevices ?? 0}
+            pushed={n.pushed ?? 0}
+            failed={n.failed ?? 0}
+            unsupported={n.unsupported ?? 0}
+            compact
+          />
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <button
@@ -146,7 +162,12 @@ function HistoryItem({ n, deletingId, onDelete }: {
       </div>
       {expanded && (
         <div className="border-t border-gray-100 px-4 pb-4 pt-3 space-y-3">
-          <DeliveryStats totalDevices={n.totalDevices ?? 0} pushed={n.pushed ?? 0} failed={n.failed ?? 0} />
+          <DeliveryStats
+            totalDevices={n.totalDevices ?? 0}
+            pushed={n.pushed ?? 0}
+            failed={n.failed ?? 0}
+            unsupported={n.unsupported ?? 0}
+          />
           {n.imageUrl && (
             <div className="flex items-center gap-2 text-xs text-indigo-500/70">
               <Image className="h-3 w-3" />
@@ -364,7 +385,12 @@ export default function NotificationsPage() {
                     <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
                     <p className="font-semibold text-emerald-700">Notification sent successfully!</p>
                   </div>
-                  <DeliveryStats totalDevices={result.totalDevices ?? 0} pushed={result.pushed ?? 0} failed={result.failed ?? 0} />
+                  <DeliveryStats
+                    totalDevices={result.totalDevices ?? 0}
+                    pushed={result.pushed ?? 0}
+                    failed={result.failed ?? 0}
+                    unsupported={result.unsupported ?? 0}
+                  />
                   {result.message && (
                     <p className="text-xs text-gray-400 flex items-center gap-1">
                       <AlertTriangle className="h-3 w-3" />{result.message}
@@ -384,7 +410,7 @@ export default function NotificationsPage() {
           <div className="flex items-center justify-between pt-1 border-t border-gray-50">
             <div className="flex items-center gap-2 text-sm text-gray-400">
               <Users className="h-4 w-4" />
-              <span>Broadcasts to all devices</span>
+              <span>Broadcasts to supported devices</span>
             </div>
             <button
               onClick={handleSend}

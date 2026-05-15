@@ -9,7 +9,7 @@ import { isMobileOrSessionAuthed } from '@/lib/mobile-auth'
  * POST /api/notifications/send
  *
  * Collects FCM tokens → sends multicast → saves notification to Firestore with
- * real delivery stats (totalDevices, pushed, failed).
+ * real delivery stats (totalDevices, pushed, failed, unsupported).
  * Automatically bumps notificationsUpdatedAt so the mobile app updates its cache.
  *
  * Body: { title, body, imageUrl?, data? }
@@ -34,15 +34,25 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // 1. Collect all FCM tokens from Firestore
+    // 1. Collect supported FCM tokens from Firestore and count unsupported devices.
     const tokensSnapshot = await db.collection('fcmTokens').get()
-    const tokens = tokensSnapshot.docs.map((d) => d.data().token as string).filter(Boolean)
-    const totalDevices = tokens.length
+    const totalDevices = tokensSnapshot.size
+    const tokens = tokensSnapshot.docs.flatMap((d) => {
+      const data = d.data()
+      const token = typeof data.token === 'string' && data.token.trim()
+        ? data.token.trim()
+        : typeof data.fcmToken === 'string' && data.fcmToken.trim()
+          ? data.fcmToken.trim()
+          : ''
+
+      return data.fcmSupported === false || !token ? [] : [token]
+    })
+    const unsupported = totalDevices - tokens.length
 
     if (!sendPush || tokens.length === 0) {
       const stored = await createNotification(
         { title, body: notifBody, imageUrl, data },
-        { totalDevices, pushed: 0, failed: 0 }
+        { totalDevices, pushed: 0, failed: 0, unsupported }
       )
       return NextResponse.json({
         success: true,
@@ -50,7 +60,8 @@ export async function POST(req: NextRequest) {
         totalDevices,
         pushed: 0,
         failed: 0,
-        message: tokens.length === 0 ? 'No tokens registered' : undefined,
+        unsupported,
+        message: tokens.length === 0 ? 'No supported FCM tokens registered' : undefined,
       })
     }
 
@@ -114,7 +125,7 @@ export async function POST(req: NextRequest) {
     // 4. Save to Firestore now that we have real stats
     const stored = await createNotification(
       { title, body: notifBody, imageUrl, data },
-      { totalDevices, pushed: successCount, failed: failureCount }
+      { totalDevices, pushed: successCount, failed: failureCount, unsupported }
     )
 
     // 5. Clean up invalid tokens (fire-and-forget)
@@ -129,7 +140,7 @@ export async function POST(req: NextRequest) {
       console.log(`[FCM] Cleaned up ${invalidTokens.length} invalid tokens`)
     }
 
-    console.log(`[FCM] Sent: success=${successCount} failure=${failureCount} total=${totalDevices}`)
+    console.log(`[FCM] Sent: success=${successCount} failure=${failureCount} unsupported=${unsupported} total=${totalDevices}`)
 
     return NextResponse.json({
       success: true,
@@ -137,6 +148,7 @@ export async function POST(req: NextRequest) {
       totalDevices,
       pushed: successCount,
       failed: failureCount,
+      unsupported,
       invalidTokensCleaned: invalidTokens.length,
     })
   } catch (error) {

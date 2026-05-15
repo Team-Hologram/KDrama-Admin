@@ -14,6 +14,7 @@ export interface NotificationDeliveryStats {
   totalDevices: number
   pushed: number
   failed: number
+  unsupported: number
 }
 
 export interface StoredNotification extends NotificationPayload, NotificationDeliveryStats {
@@ -39,6 +40,7 @@ export async function createNotification(
     totalDevices: stats?.totalDevices ?? 0,
     pushed: stats?.pushed ?? 0,
     failed: stats?.failed ?? 0,
+    unsupported: stats?.unsupported ?? 0,
     createdAt: now,
   })
 
@@ -52,6 +54,7 @@ export async function createNotification(
     totalDevices: stats?.totalDevices ?? 0,
     pushed: stats?.pushed ?? 0,
     failed: stats?.failed ?? 0,
+    unsupported: stats?.unsupported ?? 0,
   }
 }
 
@@ -74,6 +77,7 @@ export async function getAllNotifications(): Promise<StoredNotification[]> {
     totalDevices: doc.data().totalDevices ?? 0,
     pushed: doc.data().pushed ?? 0,
     failed: doc.data().failed ?? 0,
+    unsupported: doc.data().unsupported ?? 0,
     createdAt: doc.data().createdAt ?? '',
   }))
 }
